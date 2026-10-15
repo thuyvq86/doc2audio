@@ -1,5 +1,5 @@
 import { extractText } from "./extract.js";
-import { hasWebGPU, getEngine, makeScript, requestPersistentStorage } from "./summarize.js";
+import { hasWebGPU, gpuReady, getEngine, makeScript, requestPersistentStorage } from "./summarize.js";
 import * as TTS from "./tts.js";
 
 const $ = (id) => document.getElementById(id);
@@ -69,11 +69,17 @@ function prog(wrapId, pct, text) {
 function progDone(wrapId) { setTimeout(() => $(wrapId).classList.add("hidden"), 600); }
 
 /* ---------- Summarize ---------- */
+const GPU_TIP = "Chrome chưa bật WebGPU nên không chạy được model tóm lược.\n\nCách bật: mở chrome://settings/system → bật “Use graphics acceleration when available” → Relaunch. Kiểm tra tại chrome://gpu (dòng WebGPU phải là Hardware accelerated). Dùng Chrome/Edge mới, không dùng Safari cũ.\n\nTrong lúc đó anh vẫn có thể TỰ DÁN hoặc sửa bản đọc ở ô bên dưới rồi bấm “Đọc thành audio” — giọng Piper không cần GPU.";
+
 $("summBtn").onclick = async () => {
   if (!docText.trim()) return;
-  if (!hasWebGPU()) {
-    alert("Trình duyệt chưa bật WebGPU (cần Chrome/Edge mới, hoặc Safari 18+). Model tóm lược cần WebGPU.\nAnh có thể dùng Chrome để chạy, hoặc tự dán bản đọc vào ô bên dưới rồi tạo audio.");
-    $("scriptWrap").classList.remove("hidden"); return;
+  if (!(await gpuReady())) {
+    $("scriptWrap").classList.remove("hidden");
+    $("script").value = $("script").value || docText; // mồi sẵn văn bản gốc để anh rút gọn tay
+    $("ttsBtn").disabled = false;
+    log("ℹ WebGPU chưa sẵn sàng — bỏ qua bước AI. Anh sửa/rút gọn bản đọc ở ô dưới rồi tạo audio (Piper không cần GPU).");
+    alert(GPU_TIP);
+    return;
   }
   $("summBtn").disabled = true;
   try {
@@ -92,7 +98,14 @@ $("summBtn").onclick = async () => {
     log("✓ Đã tạo bản đọc.");
   } catch (e) {
     const msg = String(e && e.message || e);
-    if (/quota|exceeded|storage/i.test(msg)) {
+    if (/compatible gpu|webgpu|requestadapter|adapter/i.test(msg)) {
+      $("scriptWrap").classList.remove("hidden");
+      $("script").value = $("script").value || docText;
+      $("ttsBtn").disabled = false;
+      prog("summProgress", 1, "WebGPU chưa sẵn sàng — anh sửa bản đọc ở dưới rồi tạo audio.");
+      log("⚠ WebGPU: " + msg);
+      alert(GPU_TIP);
+    } else if (/quota|exceeded|storage/i.test(msg)) {
       const tip = "Hết dung lượng lưu trữ của trình duyệt khi tải model. Cách xử lý: chọn model nhỏ hơn (0.5B hoặc 1.5B); dùng Chrome thay vì Safari; hoặc xóa dữ liệu site (DevTools → Application → Clear storage) rồi thử lại.";
       prog("summProgress", 1, tip);
       log("⚠ Quota: " + msg + "\n→ " + tip);

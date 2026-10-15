@@ -6,6 +6,15 @@ let loadedModel = null;
 
 export function hasWebGPU() { return typeof navigator !== "undefined" && !!navigator.gpu; }
 
+// Kiểm tra thật sự: có navigator.gpu VÀ xin được adapter (nhiều máy có gpu nhưng adapter null).
+export async function gpuReady() {
+  try {
+    if (!navigator.gpu) return false;
+    const a = await navigator.gpu.requestAdapter();
+    return !!a;
+  } catch { return false; }
+}
+
 // Xin trình duyệt cấp lưu trữ "bền" để giảm lỗi quota khi cache model.
 export async function requestPersistentStorage() {
   try {

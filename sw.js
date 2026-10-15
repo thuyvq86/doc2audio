@@ -1,8 +1,8 @@
-// Service worker v4: CHỈ cache app shell + vài thư viện JS nhỏ cho offline.
+// Service worker v5: CHỈ cache app shell + vài thư viện JS nhỏ cho offline.
 // KHÔNG cache model (shard từ huggingface) — WebLLM/Piper tự cache trong IndexedDB.
 // Mọi cache.put đều bọc try/catch để không bao giờ ném QuotaExceededError.
-const SHELL = "d2a-shell-v4";
-const RUNTIME = "d2a-runtime-v4";
+const SHELL = "d2a-shell-v5";
+const RUNTIME = "d2a-runtime-v5";
 const APP = [
   "./", "./index.html", "./css/style.css",
   "./js/app.js", "./js/extract.js", "./js/summarize.js", "./js/tts.js",
