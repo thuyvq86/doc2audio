@@ -1,19 +1,37 @@
 /**
  * Doc2Audio — Cloudflare Worker proxy cho edge-tts (giọng Microsoft Neural, có Nam Minh).
- * Giúp trang web tĩnh (GitHub Pages) gọi được edge-tts ONLINE, không cần helper trên máy.
+ * Tự lấy phiên bản Edge mới nhất từ Microsoft để khỏi phải sửa tay token version.
  *
  * Deploy: dash.cloudflare.com → Workers & Pages → Create → Worker → dán toàn bộ file này → Deploy.
- * Dùng: trong app chọn giọng "edge-tts", dán URL Worker (…​.workers.dev) vào ô endpoint.
- *
- * API:
- *   GET  /health         -> {"ok":true}
- *   POST /tts  {text, voice, rate, pitch} -> audio/mpeg (MP3)
+ * API:  GET /health -> {ok,version}   |   POST /tts {text,voice,rate,pitch} -> audio/mpeg
  */
 
 const TRUSTED = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-const GEC_VERSION = "1-143.0.3650.75";
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0";
+const FALLBACK_VERSION = "143.0.3650.75"; // dùng khi không fetch được version mới
+
+function uaFor(ver) {
+  const major = ver.split(".")[0];
+  return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36 Edg/${major}.0.0.0`;
+}
+
+// Cache version trong isolate (best-effort) — tự fetch lại sau 6 giờ.
+let _ver = { v: FALLBACK_VERSION, t: 0 };
+async function getEdgeVersion() {
+  const now = Date.now();
+  if (_ver.t && now - _ver.t < 6 * 3600 * 1000) return _ver.v;
+  try {
+    const r = await fetch("https://edgeupdates.microsoft.com/api/products?view=enterprise", {
+      headers: { "Accept": "application/json", "User-Agent": uaFor(FALLBACK_VERSION) },
+      cf: { cacheTtl: 3600, cacheEverything: true },
+    });
+    const data = await r.json();
+    const stable = data.find((p) => (p.Product || "").toLowerCase() === "stable");
+    const rels = (stable && stable.Releases) || [];
+    const rel = rels.find((x) => x.Platform === "Windows" && x.Architecture === "x64") || rels[0];
+    if (rel && rel.ProductVersion) _ver = { v: rel.ProductVersion, t: now };
+  } catch { /* giữ version cũ / fallback */ }
+  return _ver.v;
+}
 
 function cors(extra = {}) {
   return {
@@ -24,11 +42,10 @@ function cors(extra = {}) {
   };
 }
 
-// Token Sec-MS-GEC (giống thuật toán của edge-tts, tính theo float64 như Python).
 async function secMsGec() {
   let ticks = Date.now() / 1000 + 11644473600;
-  ticks -= ticks % 300;          // làm tròn xuống 5 phút
-  ticks *= 1e7;                   // giây -> đơn vị 100ns
+  ticks -= ticks % 300;
+  ticks *= 1e7;
   const data = new TextEncoder().encode(ticks.toFixed(0) + TRUSTED);
   const hash = await crypto.subtle.digest("SHA-256", data);
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
@@ -38,13 +55,10 @@ function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
-
 function buildSSML(text, voice, rate, pitch) {
   return `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='vi-VN'>` +
          `<voice name='${voice}'><prosody rate='${rate}' pitch='${pitch}'>${escapeXml(text)}</prosody></voice></speak>`;
 }
-
-// Chia văn bản dài thành đoạn <= max ký tự, cắt theo câu.
 function splitText(text, max = 1800) {
   const sentences = text.replace(/\s+/g, " ").match(/[^.!?…\n]+[.!?…]*\s*/g) || [text];
   const out = [];
@@ -58,13 +72,14 @@ function splitText(text, max = 1800) {
 }
 
 async function synthOne(text, voice, rate, pitch) {
+  const ver = await getEdgeVersion();
   const gec = await secMsGec();
   const url = `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1` +
-              `?TrustedClientToken=${TRUSTED}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=${GEC_VERSION}`;
+              `?TrustedClientToken=${TRUSTED}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=1-${ver}`;
   const resp = await fetch(url, {
     headers: {
       Upgrade: "websocket",
-      "User-Agent": UA,
+      "User-Agent": uaFor(ver),
       Origin: "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
       "Pragma": "no-cache",
       "Cache-Control": "no-cache",
@@ -72,7 +87,7 @@ async function synthOne(text, voice, rate, pitch) {
     },
   });
   const ws = resp.webSocket;
-  if (!ws) throw new Error("WS upgrade thất bại (HTTP " + resp.status + ")");
+  if (!ws) throw new Error("WS upgrade failed (HTTP " + resp.status + ")");
   ws.accept();
 
   const chunks = [];
@@ -82,7 +97,7 @@ async function synthOne(text, voice, rate, pitch) {
       if (typeof ev.data === "string") {
         if (ev.data.includes("Path:turn.end")) { clearTimeout(timer); resolve(); try { ws.close(); } catch {} }
       } else {
-        const buf = ev.data; // ArrayBuffer
+        const buf = ev.data;
         const headerLen = new DataView(buf).getUint16(0);
         chunks.push(new Uint8Array(buf, 2 + headerLen));
       }
@@ -111,7 +126,8 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { headers: cors() });
     const url = new URL(req.url);
     if (url.pathname.endsWith("/health")) {
-      return new Response('{"ok":true}', { headers: cors({ "Content-Type": "application/json" }) });
+      const v = await getEdgeVersion();
+      return new Response(JSON.stringify({ ok: true, version: v }), { headers: cors({ "Content-Type": "application/json" }) });
     }
     if (req.method !== "POST") return new Response("POST /tts", { status: 405, headers: cors() });
     try {
@@ -125,7 +141,7 @@ export default {
       const parts = [];
       for (const piece of splitText(text)) parts.push(await synthOne(piece, voice, rate, pitch));
       const len = parts.reduce((a, c) => a + c.length, 0);
-      if (!len) throw new Error("không nhận được audio");
+      if (!len) throw new Error("no audio");
       const out = new Uint8Array(len);
       let off = 0;
       for (const c of parts) { out.set(c, off); off += c.length; }
