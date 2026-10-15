@@ -59,7 +59,7 @@ function splitText(text, max = 1800) {
 
 async function synthOne(text, voice, rate, pitch) {
   const gec = await secMsGec();
-  const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1` +
+  const url = `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1` +
               `?TrustedClientToken=${TRUSTED}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=${GEC_VERSION}`;
   const resp = await fetch(url, {
     headers: {
