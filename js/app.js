@@ -1,7 +1,6 @@
 import { extractText } from "./extract.js";
 import { hasWebGPU, gpuReady, getEngine, makeScript, requestPersistentStorage } from "./summarize.js";
 import * as TTS from "./tts.js";
-// (TTS.getEdgeBase / TTS.setEdgeBase dùng cho endpoint edge-tts tùy chỉnh)
 
 const $ = (id) => document.getElementById(id);
 const log = (m) => { const l = $("log"); l.textContent += (l.textContent ? "\n" : "") + m; };
@@ -70,15 +69,15 @@ function prog(wrapId, pct, text) {
 function progDone(wrapId) { setTimeout(() => $(wrapId).classList.add("hidden"), 600); }
 
 /* ---------- Summarize ---------- */
-const GPU_TIP = "Chrome chưa bật WebGPU nên không chạy được model tóm lược.\n\nCách bật: mở chrome://settings/system → bật “Use graphics acceleration when available” → Relaunch. Kiểm tra tại chrome://gpu (dòng WebGPU phải là Hardware accelerated). Dùng Chrome/Edge mới, không dùng Safari cũ.\n\nTrong lúc đó anh vẫn có thể TỰ DÁN hoặc sửa bản đọc ở ô bên dưới rồi bấm “Đọc thành audio” — giọng Piper không cần GPU.";
+const GPU_TIP = "Chrome chưa bật WebGPU nên không chạy được model tóm lược.\n\nCách bật: mở chrome://settings/system → bật “Use graphics acceleration when available” → Relaunch. Kiểm tra tại chrome://gpu (dòng WebGPU phải là Hardware accelerated). Dùng Chrome/Edge mới, không dùng Safari cũ.\n\nTrong lúc đó anh vẫn có thể TỰ DÁN hoặc sửa bản đọc ở ô bên dưới rồi bấm “Đọc thành audio”.";
 
 $("summBtn").onclick = async () => {
   if (!docText.trim()) return;
   if (!(await gpuReady())) {
     $("scriptWrap").classList.remove("hidden");
-    $("script").value = $("script").value || docText; // mồi sẵn văn bản gốc để anh rút gọn tay
+    $("script").value = $("script").value || docText;
     $("ttsBtn").disabled = false;
-    log("ℹ WebGPU chưa sẵn sàng — bỏ qua bước AI. Anh sửa/rút gọn bản đọc ở ô dưới rồi tạo audio (Piper không cần GPU).");
+    log("ℹ WebGPU chưa sẵn sàng — bỏ qua bước AI. Anh sửa/rút gọn bản đọc ở ô dưới rồi tạo audio.");
     alert(GPU_TIP);
     return;
   }
@@ -123,19 +122,15 @@ const engineSel = $("engine");
 engineSel.onchange = refreshVoices;
 async function checkEdge() {
   const h = $("edgeHint"); h.classList.remove("hidden");
-  h.textContent = "Đang kiểm tra endpoint…"; h.style.color = "var(--muted)";
+  h.textContent = "Đang kết nối giọng online…"; h.style.color = "var(--muted)";
   const ok = await TTS.edgeAvailable();
-  const online = /^https?:\/\/(?!127\.0\.0\.1|localhost)/.test(TTS.getEdgeBase());
   h.style.color = ok ? "var(--ok)" : "var(--warn)";
-  h.textContent = ok
-    ? (online ? "✓ Đã kết nối Worker edge-tts (online)." : "✓ Đã thấy helper edge-tts trên máy.")
-    : (online ? "⚠ Không gọi được Worker — kiểm tra lại URL." : "⚠ Chưa có endpoint. Dán URL Cloudflare Worker, hoặc chạy: python3 edge_server.py");
+  h.textContent = ok ? "✓ Giọng online đã sẵn sàng." : "⚠ Chưa kết nối được giọng online — kiểm tra mạng rồi thử lại.";
 }
 async function refreshVoices() {
   const eng = engineSel.value, vsel = $("voice"); vsel.innerHTML = "";
   $("voiceWrap").classList.remove("hidden");
   $("edgeHint").classList.add("hidden");
-  $("edgeUrlWrap").classList.add("hidden");
   if (eng === "piper") {
     TTS.PIPER_VOICES.forEach(v => vsel.add(new Option(v.label, v.id)));
   } else if (eng === "system") {
@@ -144,18 +139,9 @@ async function refreshVoices() {
     vs.forEach(v => vsel.add(new Option(v.label, v.id)));
   } else if (eng === "edge") {
     TTS.EDGE_VOICES.forEach(v => vsel.add(new Option(v.label, v.id)));
-    $("edgeUrlWrap").classList.remove("hidden");
-    const saved = TTS.getEdgeBase();
-    $("edgeUrl").value = /workers\.dev|^https?:\/\/(?!127|localhost)/.test(saved) ? saved : "";
     await checkEdge();
   }
 }
-let edgeTimer;
-$("edgeUrl").oninput = () => {
-  TTS.setEdgeBase($("edgeUrl").value);
-  clearTimeout(edgeTimer);
-  edgeTimer = setTimeout(checkEdge, 600);
-};
 if (speechSynthesis.onvoiceschanged !== undefined)
   speechSynthesis.onvoiceschanged = () => { if (engineSel.value === "system") refreshVoices(); };
 refreshVoices();
@@ -171,15 +157,14 @@ $("ttsBtn").onclick = async () => {
       prog("ttsProgress", 0.5, "Đang đọc bằng giọng hệ điều hành…");
       await TTS.systemSpeak(text, voice, rate);
       prog("ttsProgress", 1, "Đã đọc xong (giọng hệ điều hành không xuất file tải về).");
-      log("ℹ Giọng macOS chỉ phát, không tạo file tải. Dùng Piper hoặc edge-tts nếu cần tải MP3/WAV.");
+      log("ℹ Giọng macOS chỉ phát, không tạo file tải. Dùng giọng online hoặc Piper nếu cần tải MP3/WAV.");
       return;
     }
     let out;
     if (engine === "piper") {
       out = await TTS.piperSynth(text, voice, (p, t) => prog("ttsProgress", p, t));
     } else {
-      if (!(await TTS.edgeAvailable())) throw new Error("Chưa kết nối được edge-tts. Dán URL Cloudflare Worker vào ô endpoint, hoặc chạy helper: python3 edge_server.py");
-      prog("ttsProgress", 0.4, "Đang gọi edge-tts…");
+      prog("ttsProgress", 0.4, "Đang tạo giọng online…");
       out = await TTS.edgeSynth(text, voice, rate);
     }
     if (lastAudioURL) URL.revokeObjectURL(lastAudioURL);

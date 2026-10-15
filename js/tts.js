@@ -1,15 +1,13 @@
-// Ba cỗ máy đọc: Piper (offline, WASM) · Web Speech (giọng hệ điều hành) · edge-tts (helper/Worker).
+// Ba cỗ máy đọc: edge-tts (online, Worker) · Piper (offline) · Web Speech (giọng hệ điều hành).
 import * as piper from "https://esm.run/@diffusionstudio/vits-web";
 
-export const EDGE_URL = "http://127.0.0.1:5005"; // mặc định: helper trên máy
+// Endpoint edge-tts mặc định: Cloudflare Worker (Google TTS) — chạy online, không cần làm gì thêm.
+export const EDGE_URL = "https://edge-tts.thuy-vq86.workers.dev";
 
-// Endpoint edge-tts: ưu tiên URL đã lưu (vd Cloudflare Worker online), nếu không thì helper local.
+// Cho phép ghi đè bằng localStorage nếu cần (nâng cao); mặc định dùng Worker ở trên.
 export function getEdgeBase() {
   try { return (localStorage.getItem("d2a-edge-url") || "").trim() || EDGE_URL; }
   catch { return EDGE_URL; }
-}
-export function setEdgeBase(u) {
-  try { localStorage.setItem("d2a-edge-url", (u || "").trim().replace(/\/+$/, "")); } catch {}
 }
 
 // Piper tiếng Việt (offline) — thực tế chỉ có giọng nữ; chất lượng vừa phải.
@@ -19,7 +17,7 @@ export const PIPER_VOICES = [
   { id: "vi_VN-vivos-x_low",          label: "vivos — chất lượng thấp, tải nhanh" },
 ];
 
-// edge-tts — giọng tự nhiên nhất (cần helper hoặc Worker), có cả nam và nữ.
+// edge-tts (qua Worker) — giọng tự nhiên nhất, có cả nam và nữ.
 export const EDGE_VOICES = [
   { id: "vi-VN-NamMinhNeural", label: "Nam Minh — nam, tự nhiên" },
   { id: "vi-VN-HoaiMyNeural",  label: "Hoài My — nữ, tự nhiên" },
@@ -28,14 +26,26 @@ export const EDGE_VOICES = [
 /* ---------- PIPER (offline) ---------- */
 export async function piperStored() { try { return await piper.stored(); } catch { return []; } }
 
-export async function piperSynth(text, voiceId, onProgress = () => {}) {
+async function piperEnsure(voiceId, onProgress, label) {
   const stored = await piperStored();
   if (!stored.includes(voiceId)) {
-    await piper.download(voiceId, (p) => onProgress(p.loaded / (p.total || 1), "Đang tải giọng Piper…"));
+    await piper.download(voiceId, (p) => onProgress(p.loaded / (p.total || 1), label));
   }
+}
+export async function piperSynth(text, voiceId, onProgress = () => {}) {
+  await piperEnsure(voiceId, onProgress, "Đang tải giọng Piper…");
   onProgress(0.98, "Đang tạo audio…");
-  const wav = await piper.predict({ text, voiceId }); // Blob (audio/wav)
-  return { blob: wav, ext: "wav" };
+  try {
+    const wav = await piper.predict({ text, voiceId });
+    return { blob: wav, ext: "wav" };
+  } catch (e) {
+    // Model cache hỏng ("No graph in the protobuf") → xóa và tải lại 1 lần.
+    try { await piper.remove(voiceId); } catch {}
+    await piperEnsure(voiceId, onProgress, "Giọng lỗi — đang tải lại…");
+    onProgress(0.98, "Đang tạo audio…");
+    const wav = await piper.predict({ text, voiceId });
+    return { blob: wav, ext: "wav" };
+  }
 }
 
 /* ---------- WEB SPEECH (giọng macOS) ---------- */
@@ -56,10 +66,10 @@ export function systemSpeak(text, voiceURI, rate = 1) {
   });
 }
 
-/* ---------- EDGE-TTS (helper local hoặc Cloudflare Worker) ---------- */
+/* ---------- EDGE-TTS (qua Cloudflare Worker) ---------- */
 export async function edgeAvailable() {
   try {
-    const r = await fetch(`${getEdgeBase()}/health`, { signal: AbortSignal.timeout(4000) });
+    const r = await fetch(`${getEdgeBase()}/health`, { signal: AbortSignal.timeout(5000) });
     return r.ok;
   } catch { return false; }
 }
@@ -69,6 +79,6 @@ export async function edgeSynth(text, voiceId, rate = 1) {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, voice: voiceId, rate: `${pct >= 0 ? "+" : ""}${pct}%` }),
   });
-  if (!r.ok) throw new Error(`edge-tts lỗi ${r.status}: ${await r.text().catch(()=> "")}`);
+  if (!r.ok) throw new Error(`Giọng online lỗi ${r.status}: ${await r.text().catch(()=> "")}`);
   return { blob: await r.blob(), ext: "mp3" };
 }
