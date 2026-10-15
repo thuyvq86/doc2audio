@@ -99,8 +99,8 @@ export async function makeScript(text, { style = "explain", length = "medium" },
     const partials = [];
     for (let i = 0; i < chunks.length; i++) {
       onStatus(`Đang đọc phần ${i + 1}/${chunks.length}…`, i / chunks.length);
-      const sys = "Bạn là trợ lý tóm tắt tài liệu tiếng Việt. Chỉ trả về nội dung tóm tắt, không thêm lời dẫn.";
-      const u = `Tóm tắt phần tài liệu sau thành các ý chính, giữ nguyên số liệu và thuật ngữ quan trọng:\n\n${chunks[i]}`;
+      const sys = "Bạn là trợ lý tóm tắt tài liệu. BẮT BUỘC viết hoàn toàn bằng TIẾNG VIỆT, tuyệt đối không dịch sang tiếng Anh. Chỉ trả về nội dung tóm tắt, không thêm lời dẫn.";
+      const u = `Tóm tắt phần tài liệu sau thành các ý chính bằng tiếng Việt, giữ nguyên số liệu và thuật ngữ quan trọng:\n\n${chunks[i]}`;
       partials.push(await ask(eng, sys, u, 900));
     }
     digest = partials.join("\n\n");
@@ -108,14 +108,14 @@ export async function makeScript(text, { style = "explain", length = "medium" },
 
   onStatus("Đang biên tập bản đọc…", 0.9);
   const sys = `Bạn là biên tập viên tạo kịch bản đọc tiếng Việt tự nhiên để chuyển thành giọng nói.
+QUAN TRỌNG NHẤT: Viết TOÀN BỘ bằng TIẾNG VIỆT. Tuyệt đối KHÔNG dịch, KHÔNG viết bằng tiếng Anh. Dù tài liệu gốc có đoạn tiếng Anh, bản đọc vẫn phải là tiếng Việt (chỉ giữ nguyên tên riêng hoặc thuật ngữ không có từ tiếng Việt tương đương).
 ${S}
 Yêu cầu:
 - Độ dài ${L.words}, ${L.note}.
 - Viết văn xuôi liền mạch, KHÔNG dùng dấu đầu dòng, markdown, emoji, tiêu đề, hay ký hiệu đặc biệt.
 - Viết số bằng chữ khi hợp lý để máy đọc đúng (ví dụ: "hai mươi bốn trên hai mươi bốn giờ"). Số điện thoại tách từng cụm.
-- Giữ nguyên thuật ngữ tiếng Anh nếu có.
-- Chỉ trả về bản đọc, không thêm lời giải thích nào khác.`;
-  const user = `Dựa trên nội dung sau, hãy viết bản đọc hoàn chỉnh:\n\n${digest}`;
+- Chỉ trả về bản đọc tiếng Việt, không thêm lời giải thích nào khác.`;
+  const user = `Viết bản đọc hoàn chỉnh BẰNG TIẾNG VIỆT dựa trên nội dung sau:\n\n${digest}`;
   return clean(await ask(eng, sys, user, 2200));
 }
 

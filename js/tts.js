@@ -3,15 +3,17 @@ import * as piper from "https://esm.run/@diffusionstudio/vits-web";
 
 export const EDGE_URL = "http://127.0.0.1:5005";
 
+// Piper tiếng Việt (offline) — thực tế chỉ có giọng nữ; chất lượng vừa phải.
 export const PIPER_VOICES = [
-  { id: "vi_VN-vais1000-medium",      label: "vais1000 — nam, rõ (mặc định)" },
+  { id: "vi_VN-vais1000-medium",      label: "vais1000 — nữ, chất lượng tốt nhất (mặc định)" },
   { id: "vi_VN-25hours_single-low",   label: "25hours — nữ, nhẹ" },
-  { id: "vi_VN-vivos-x_low",          label: "vivos — nhẹ, tải nhanh" },
+  { id: "vi_VN-vivos-x_low",          label: "vivos — chất lượng thấp, tải nhanh" },
 ];
 
+// edge-tts — giọng tự nhiên nhất (cần helper), có cả nam và nữ.
 export const EDGE_VOICES = [
-  { id: "vi-VN-NamMinhNeural", label: "Nam Minh — nam (tự nhiên)" },
-  { id: "vi-VN-HoaiMyNeural",  label: "Hoài My — nữ (tự nhiên)" },
+  { id: "vi-VN-NamMinhNeural", label: "Nam Minh — nam, tự nhiên" },
+  { id: "vi-VN-HoaiMyNeural",  label: "Hoài My — nữ, tự nhiên" },
 ];
 
 /* ---------- PIPER (offline) ---------- */
