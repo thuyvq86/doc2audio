@@ -1,6 +1,7 @@
 import { extractText } from "./extract.js";
 import { hasWebGPU, gpuReady, getEngine, makeScript, requestPersistentStorage } from "./summarize.js";
 import * as TTS from "./tts.js";
+// (TTS.getEdgeBase / TTS.setEdgeBase dùng cho endpoint edge-tts tùy chỉnh)
 
 const $ = (id) => document.getElementById(id);
 const log = (m) => { const l = $("log"); l.textContent += (l.textContent ? "\n" : "") + m; };
@@ -120,10 +121,21 @@ $("summBtn").onclick = async () => {
 /* ---------- Engine / voice selectors ---------- */
 const engineSel = $("engine");
 engineSel.onchange = refreshVoices;
+async function checkEdge() {
+  const h = $("edgeHint"); h.classList.remove("hidden");
+  h.textContent = "Đang kiểm tra endpoint…"; h.style.color = "var(--muted)";
+  const ok = await TTS.edgeAvailable();
+  const online = /^https?:\/\/(?!127\.0\.0\.1|localhost)/.test(TTS.getEdgeBase());
+  h.style.color = ok ? "var(--ok)" : "var(--warn)";
+  h.textContent = ok
+    ? (online ? "✓ Đã kết nối Worker edge-tts (online)." : "✓ Đã thấy helper edge-tts trên máy.")
+    : (online ? "⚠ Không gọi được Worker — kiểm tra lại URL." : "⚠ Chưa có endpoint. Dán URL Cloudflare Worker, hoặc chạy: python3 edge_server.py");
+}
 async function refreshVoices() {
   const eng = engineSel.value, vsel = $("voice"); vsel.innerHTML = "";
   $("voiceWrap").classList.remove("hidden");
   $("edgeHint").classList.add("hidden");
+  $("edgeUrlWrap").classList.add("hidden");
   if (eng === "piper") {
     TTS.PIPER_VOICES.forEach(v => vsel.add(new Option(v.label, v.id)));
   } else if (eng === "system") {
@@ -132,12 +144,18 @@ async function refreshVoices() {
     vs.forEach(v => vsel.add(new Option(v.label, v.id)));
   } else if (eng === "edge") {
     TTS.EDGE_VOICES.forEach(v => vsel.add(new Option(v.label, v.id)));
-    const ok = await TTS.edgeAvailable();
-    const h = $("edgeHint"); h.classList.remove("hidden");
-    h.style.color = ok ? "var(--ok)" : "var(--warn)";
-    h.textContent = ok ? "✓ Đã thấy helper edge-tts." : "⚠ Chưa chạy helper. Mở terminal: python3 edge_server.py";
+    $("edgeUrlWrap").classList.remove("hidden");
+    const saved = TTS.getEdgeBase();
+    $("edgeUrl").value = /workers\.dev|^https?:\/\/(?!127|localhost)/.test(saved) ? saved : "";
+    await checkEdge();
   }
 }
+let edgeTimer;
+$("edgeUrl").oninput = () => {
+  TTS.setEdgeBase($("edgeUrl").value);
+  clearTimeout(edgeTimer);
+  edgeTimer = setTimeout(checkEdge, 600);
+};
 if (speechSynthesis.onvoiceschanged !== undefined)
   speechSynthesis.onvoiceschanged = () => { if (engineSel.value === "system") refreshVoices(); };
 refreshVoices();
@@ -160,8 +178,8 @@ $("ttsBtn").onclick = async () => {
     if (engine === "piper") {
       out = await TTS.piperSynth(text, voice, (p, t) => prog("ttsProgress", p, t));
     } else {
-      if (!(await TTS.edgeAvailable())) throw new Error("Helper edge-tts chưa chạy. Mở terminal: python3 edge_server.py");
-      prog("ttsProgress", 0.4, "Đang gọi edge-tts (helper local)…");
+      if (!(await TTS.edgeAvailable())) throw new Error("Chưa kết nối được edge-tts. Dán URL Cloudflare Worker vào ô endpoint, hoặc chạy helper: python3 edge_server.py");
+      prog("ttsProgress", 0.4, "Đang gọi edge-tts…");
       out = await TTS.edgeSynth(text, voice, rate);
     }
     if (lastAudioURL) URL.revokeObjectURL(lastAudioURL);

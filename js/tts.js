@@ -1,7 +1,16 @@
-// Ba cỗ máy đọc: Piper (offline, WASM) · Web Speech (giọng hệ điều hành) · edge-tts (helper local).
+// Ba cỗ máy đọc: Piper (offline, WASM) · Web Speech (giọng hệ điều hành) · edge-tts (helper/Worker).
 import * as piper from "https://esm.run/@diffusionstudio/vits-web";
 
-export const EDGE_URL = "http://127.0.0.1:5005";
+export const EDGE_URL = "http://127.0.0.1:5005"; // mặc định: helper trên máy
+
+// Endpoint edge-tts: ưu tiên URL đã lưu (vd Cloudflare Worker online), nếu không thì helper local.
+export function getEdgeBase() {
+  try { return (localStorage.getItem("d2a-edge-url") || "").trim() || EDGE_URL; }
+  catch { return EDGE_URL; }
+}
+export function setEdgeBase(u) {
+  try { localStorage.setItem("d2a-edge-url", (u || "").trim().replace(/\/+$/, "")); } catch {}
+}
 
 // Piper tiếng Việt (offline) — thực tế chỉ có giọng nữ; chất lượng vừa phải.
 export const PIPER_VOICES = [
@@ -10,7 +19,7 @@ export const PIPER_VOICES = [
   { id: "vi_VN-vivos-x_low",          label: "vivos — chất lượng thấp, tải nhanh" },
 ];
 
-// edge-tts — giọng tự nhiên nhất (cần helper), có cả nam và nữ.
+// edge-tts — giọng tự nhiên nhất (cần helper hoặc Worker), có cả nam và nữ.
 export const EDGE_VOICES = [
   { id: "vi-VN-NamMinhNeural", label: "Nam Minh — nam, tự nhiên" },
   { id: "vi-VN-HoaiMyNeural",  label: "Hoài My — nữ, tự nhiên" },
@@ -47,19 +56,19 @@ export function systemSpeak(text, voiceURI, rate = 1) {
   });
 }
 
-/* ---------- EDGE-TTS (helper local) ---------- */
+/* ---------- EDGE-TTS (helper local hoặc Cloudflare Worker) ---------- */
 export async function edgeAvailable() {
   try {
-    const r = await fetch(`${EDGE_URL}/health`, { signal: AbortSignal.timeout(1500) });
+    const r = await fetch(`${getEdgeBase()}/health`, { signal: AbortSignal.timeout(4000) });
     return r.ok;
   } catch { return false; }
 }
 export async function edgeSynth(text, voiceId, rate = 1) {
   const pct = Math.round((rate - 1) * 100);
-  const r = await fetch(`${EDGE_URL}/tts`, {
+  const r = await fetch(`${getEdgeBase()}/tts`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, voice: voiceId, rate: `${pct >= 0 ? "+" : ""}${pct}%` }),
   });
-  if (!r.ok) throw new Error(`Helper trả lỗi ${r.status}`);
+  if (!r.ok) throw new Error(`edge-tts lỗi ${r.status}: ${await r.text().catch(()=> "")}`);
   return { blob: await r.blob(), ext: "mp3" };
 }
