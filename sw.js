@@ -1,7 +1,7 @@
 // Service worker: cache app shell + thư viện CDN để chạy offline sau lần tải đầu.
 // (Model LLM và giọng Piper tự cache riêng qua Cache API / IndexedDB của thư viện.)
-const SHELL = "d2a-shell-v1";
-const RUNTIME = "d2a-runtime-v1";
+const SHELL = "d2a-shell-v3";
+const RUNTIME = "d2a-runtime-v3";
 const APP = [
   "./", "./index.html", "./css/style.css",
   "./js/app.js", "./js/extract.js", "./js/summarize.js", "./js/tts.js",

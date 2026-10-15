@@ -1,17 +1,37 @@
 // Tóm lược + biên tập thành "bản đọc" bằng LLM chạy trong trình duyệt (WebLLM / WebGPU).
-import { CreateMLCEngine } from "https://esm.run/@mlc-ai/web-llm";
+import { MLCEngine, prebuiltAppConfig } from "https://esm.run/@mlc-ai/web-llm";
 
 let engine = null;
 let loadedModel = null;
 
 export function hasWebGPU() { return typeof navigator !== "undefined" && !!navigator.gpu; }
 
+// Xin trình duyệt cấp lưu trữ "bền" để giảm lỗi quota khi cache model.
+export async function requestPersistentStorage() {
+  try {
+    if (navigator.storage?.persist && !(await navigator.storage.persisted())) {
+      await navigator.storage.persist();
+    }
+    if (navigator.storage?.estimate) {
+      const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+      return { quotaGB: quota / 1e9, usageGB: usage / 1e9 };
+    }
+  } catch {}
+  return null;
+}
+
 export async function getEngine(modelId, onProgress = () => {}) {
   if (engine && loadedModel === modelId) return engine;
-  if (engine) { try { await engine.unload(); } catch (e) {} engine = null; }
-  engine = await CreateMLCEngine(modelId, {
+  if (engine) { try { await engine.unload(); } catch (e) {} engine = null; loadedModel = null; }
+  // useIndexedDBCache: hạn mức thường rộng hơn Cache API (đặc biệt trên Safari).
+  const appConfig = { ...prebuiltAppConfig, useIndexedDBCache: true };
+  const eng = new MLCEngine({
+    appConfig,
     initProgressCallback: (r) => onProgress(r.progress ?? 0, r.text || "Đang tải model…"),
   });
+  // reload() tường minh — chỉ gán engine sau khi model đã nạp xong, tránh lỗi "Model not loaded".
+  await eng.reload(modelId);
+  engine = eng;
   loadedModel = modelId;
   return engine;
 }
@@ -41,11 +61,22 @@ function chunk(text, size = 6000) {
 }
 
 async function ask(eng, system, user, max_tokens = 1500, onTok) {
-  const res = await eng.chat.completions.create({
+  const req = {
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
     temperature: 0.4, max_tokens,
-  });
-  return res.choices[0].message.content.trim();
+  };
+  try {
+    const res = await eng.chat.completions.create(req);
+    return res.choices[0].message.content.trim();
+  } catch (e) {
+    // Nếu model bị "rớt" (not loaded), nạp lại rồi thử lần nữa.
+    if (/not loaded|reload/i.test(String(e && e.message || e)) && loadedModel) {
+      await eng.reload(loadedModel);
+      const res = await eng.chat.completions.create(req);
+      return res.choices[0].message.content.trim();
+    }
+    throw e;
+  }
 }
 
 // Trả về bản đọc tiếng Việt, sẵn sàng cho TTS.

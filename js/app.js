@@ -1,10 +1,22 @@
 import { extractText } from "./extract.js";
-import { hasWebGPU, getEngine, makeScript } from "./summarize.js";
+import { hasWebGPU, getEngine, makeScript, requestPersistentStorage } from "./summarize.js";
 import * as TTS from "./tts.js";
 
 const $ = (id) => document.getElementById(id);
 const log = (m) => { const l = $("log"); l.textContent += (l.textContent ? "\n" : "") + m; };
 let docText = "", lastAudioURL = null;
+
+const isSafari = /^((?!chrome|android|crios|edg).)*safari/i.test(navigator.userAgent);
+
+// Xin lưu trữ bền + hiện hạn mức, cảnh báo Safari.
+(async () => {
+  const info = await requestPersistentStorage();
+  const h = $("storeHint");
+  let msg = "";
+  if (info) msg = `Dung lượng trình duyệt: còn ~${Math.max(0, info.quotaGB - info.usageGB).toFixed(1)}GB / ${info.quotaGB.toFixed(1)}GB.`;
+  if (isSafari) msg += " ⚠ Safari giới hạn lưu trữ nhỏ — nên dùng Chrome cho model lớn, hoặc chọn model 0.5B.";
+  if (h) h.textContent = msg;
+})();
 
 /* ---------- Theme ---------- */
 $("themeBtn").onclick = () => {
@@ -79,8 +91,16 @@ $("summBtn").onclick = async () => {
     prog("summProgress", 1, "Xong — anh có thể sửa bản đọc trước khi tạo audio.");
     log("✓ Đã tạo bản đọc.");
   } catch (e) {
-    prog("summProgress", 1, "Lỗi: " + e.message);
-    log("⚠ " + e.message);
+    const msg = String(e && e.message || e);
+    if (/quota|exceeded|storage/i.test(msg)) {
+      const tip = "Hết dung lượng lưu trữ của trình duyệt khi tải model. Cách xử lý: chọn model nhỏ hơn (0.5B hoặc 1.5B); dùng Chrome thay vì Safari; hoặc xóa dữ liệu site (DevTools → Application → Clear storage) rồi thử lại.";
+      prog("summProgress", 1, tip);
+      log("⚠ Quota: " + msg + "\n→ " + tip);
+      alert(tip);
+    } else {
+      prog("summProgress", 1, "Lỗi: " + msg);
+      log("⚠ " + msg);
+    }
   } finally { $("summBtn").disabled = false; progDone("summProgress"); }
 };
 
