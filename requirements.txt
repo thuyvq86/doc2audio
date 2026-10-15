@@ -1,0 +1,2 @@
+# Chỉ cần nếu dùng giọng edge-tts (tùy chọn)
+edge-tts>=7.0.0

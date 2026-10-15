@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Doc2Audio — Tóm lược văn bản thành audio (offline)</title>
+<meta name="description" content="Nạp PDF / Markdown / văn bản, tóm lược dễ hiểu bằng AI chạy ngay trong trình duyệt, rồi đọc thành audio. Hoạt động offline sau lần tải đầu." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎧</text></svg>" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🎧</span>
+    <div>
+      <h1>Doc2Audio</h1>
+      <p class="tag">Văn bản → tóm lược dễ hiểu → audio · chạy offline trong trình duyệt</p>
+    </div>
+  </div>
+  <button id="themeBtn" class="icon-btn" title="Đổi giao diện sáng/tối" aria-label="Đổi giao diện">◐</button>
+</header>
+
+<main>
+  <!-- STEP 1: INPUT -->
+  <section class="card" id="stepInput">
+    <h2><span class="num">1</span> Nạp tài liệu</h2>
+    <div id="drop" class="drop">
+      <input id="file" type="file" accept=".pdf,.md,.markdown,.txt,text/plain" hidden />
+      <p><strong>Kéo thả</strong> hoặc <button class="link" id="pickBtn">chọn tệp</button></p>
+      <p class="muted">Hỗ trợ: PDF · Markdown (.md) · Văn bản (.txt)</p>
+    </div>
+    <details class="paste">
+      <summary>…hoặc dán văn bản trực tiếp</summary>
+      <textarea id="pasteArea" rows="5" placeholder="Dán nội dung cần tóm lược vào đây…"></textarea>
+      <button class="btn ghost" id="usePaste">Dùng văn bản đã dán</button>
+    </details>
+    <div id="srcInfo" class="srcinfo hidden"></div>
+  </section>
+
+  <!-- STEP 2: SETTINGS + SUMMARIZE -->
+  <section class="card" id="stepSummary">
+    <h2><span class="num">2</span> Tóm lược</h2>
+    <div class="grid2">
+      <label>Model tóm lược (chạy trong máy)
+        <select id="model">
+          <option value="Qwen2.5-3B-Instruct-q4f16_1-MLC">Qwen2.5 3B — tiếng Việt tốt (mặc định)</option>
+          <option value="Qwen2.5-1.5B-Instruct-q4f16_1-MLC">Qwen2.5 1.5B — nhanh hơn</option>
+          <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5 0.5B — nhẹ nhất, review nhanh</option>
+          <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama 3.2 1B</option>
+        </select>
+      </label>
+      <label>Độ dài bản đọc
+        <select id="length">
+          <option value="short">Ngắn gọn (~1–2 phút)</option>
+          <option value="medium" selected>Vừa (~3–5 phút)</option>
+          <option value="long">Chi tiết (~6+ phút)</option>
+        </select>
+      </label>
+    </div>
+    <label>Phong cách
+      <select id="style">
+        <option value="explain" selected>Giải thích dễ hiểu (mở đầu ý chính → diễn giải → kết)</option>
+        <option value="briefing">Bản tin / thông báo (giọng phát thanh)</option>
+        <option value="bullets">Điểm chính tuần tự</option>
+      </select>
+    </label>
+    <button class="btn primary" id="summBtn" disabled>Tạo bản đọc bằng AI</button>
+    <div id="summProgress" class="progress hidden"><div class="bar"></div><span class="ptext"></span></div>
+
+    <label class="scriptlabel hidden" id="scriptWrap">Bản đọc (sửa được trước khi tạo audio)
+      <textarea id="script" rows="12" placeholder="Bản đọc do AI biên tập sẽ hiện ở đây — anh có thể chỉnh tay trước khi tạo audio."></textarea>
+    </label>
+  </section>
+
+  <!-- STEP 3: AUDIO -->
+  <section class="card" id="stepAudio">
+    <h2><span class="num">3</span> Tạo audio</h2>
+    <div class="grid2">
+      <label>Giọng đọc
+        <select id="engine">
+          <option value="piper" selected>Piper — offline, chạy trong máy</option>
+          <option value="system">Giọng macOS (Web Speech) — nhanh, có sẵn</option>
+          <option value="edge">edge-tts — giọng tự nhiên nhất (cần helper)</option>
+        </select>
+      </label>
+      <label id="voiceWrap">Chất giọng
+        <select id="voice"></select>
+      </label>
+    </div>
+    <div class="grid2">
+      <label>Tốc độ <input type="range" id="rate" min="0.6" max="1.3" step="0.05" value="0.95" /></label>
+      <div id="edgeHint" class="hint hidden"></div>
+    </div>
+    <button class="btn primary" id="ttsBtn" disabled>Đọc thành audio</button>
+    <div id="ttsProgress" class="progress hidden"><div class="bar"></div><span class="ptext"></span></div>
+
+    <div id="player" class="player hidden">
+      <audio id="audio" controls></audio>
+      <a id="download" class="btn ghost" download="ban-doc.mp3">⬇ Tải audio</a>
+    </div>
+  </section>
+
+  <div id="log" class="log" aria-live="polite"></div>
+</main>
+
+<footer class="foot">
+  <span id="offlineBadge" class="badge">● đang kiểm tra…</span>
+  <span class="muted">Mọi xử lý diễn ra trong trình duyệt của anh. Không gửi dữ liệu lên server.</span>
+</footer>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
